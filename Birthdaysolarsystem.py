@@ -12,9 +12,9 @@ solar_system = cmds.group(empty=True, name='solar_system')
 
 # Create Arnold Skydome Light (black background but still provides ambient lighting)
 skydome = cmds.shadingNode('aiSkyDomeLight', asLight=True, name='skydome_light')
-cmds.setAttr(f'{skydome}.intensity', 1.5)  # Increased intensity for better visibility
+cmds.setAttr(f'{skydome}.intensity', 1.5)
 cmds.setAttr(f'{skydome}.color', 0.9, 0.95, 1.0, type='double3')
-cmds.setAttr(f'{skydome}.camera', 0)  # Makes skydome invisible to camera (black space)
+cmds.setAttr(f'{skydome}.camera', 0)
 
 # Sun with emission (glowing like a star)
 sun = cmds.polySphere(r=3, name='sun')[0]
@@ -69,50 +69,39 @@ for name, real_au, real_radius_km, period_days, eccentricity, inclination, axial
     cmds.select(planet)
     cmds.hyperShade(assign=shader)
     
-    # Create text label for planet name (simplified - just curves with Arnold settings)
+    # Create text label for planet name
     text_result = cmds.textCurves(font='Arial', text=name.capitalize(), name=f'{name}_label')
-    # textCurves returns a list, get the actual transform group
     if isinstance(text_result, list):
         text_transform = text_result[0]
     else:
         text_transform = text_result
     
-    # Find the top level transform if it's nested
     text_parent = cmds.listRelatives(text_transform, parent=True)
     if text_parent:
         text_transform = text_parent[0]
     
-    # Scale text based on planet size (bigger planets get bigger text)
     text_scale = max(0.5, size * 2.0)
     cmds.scale(text_scale, text_scale, text_scale, text_transform)
-    # Position text above planet
-    cmds.move(0, size + 0.5, 0, text_transform, relative=True)
+    cmds.move(size - 5, size + 0.5, 0, text_transform, relative=True)
     
-    # Make text curves renderable in Arnold
     text_shapes = cmds.listRelatives(text_transform, allDescendents=True, type='nurbsCurve')
     if text_shapes:
         for shape in text_shapes:
-            # Make visible in viewport
             cmds.setAttr(f'{shape}.overrideEnabled', 1)
             cmds.setAttr(f'{shape}.overrideRGBColors', 1)
             cmds.setAttr(f'{shape}.overrideColorRGB', 1, 1, 1, type='double3')
-            
-            # Make renderable in Arnold
             cmds.setAttr(f'{shape}.aiRenderCurve', 1)
             cmds.setAttr(f'{shape}.aiCurveWidth', 0.05)
             cmds.setAttr(f'{shape}.aiSampleRate', 2)
         
-        # Create glowing shader for text
         text_shader = cmds.shadingNode('aiStandardSurface', asShader=True, name=f'{name}_text_mat')
         cmds.setAttr(f'{text_shader}.baseColor', 1, 1, 1, type='double3')
         cmds.setAttr(f'{text_shader}.emission', 1.0)
         cmds.setAttr(f'{text_shader}.emissionColor', 1, 1, 1, type='double3')
         
-        # Assign shader to all text curves
         cmds.select(text_transform)
         cmds.hyperShade(assign=text_shader)
     
-    # Point constrain text to follow planet position (not rotation)
     cmds.pointConstraint(planet, text_transform, maintainOffset=True)
     cmds.parent(text_transform, solar_system)
     
@@ -130,22 +119,18 @@ for name, real_au, real_radius_km, period_days, eccentricity, inclination, axial
     cmds.rotate(inclination, 0, 0, orbit, relative=True)
     cmds.parent(orbit, solar_system)
     
-    # Make orbit curve MUCH more visible in viewport
     orbit_shape = cmds.listRelatives(orbit, shapes=True)[0]
     cmds.setAttr(f'{orbit_shape}.overrideEnabled', 1)
     cmds.setAttr(f'{orbit_shape}.overrideRGBColors', 1)
-    cmds.setAttr(f'{orbit_shape}.overrideColorRGB', 1, 1, 1, type='double3')  # White
-    cmds.setAttr(f'{orbit_shape}.lineWidth', 3)  # Thicker lines in viewport
-    
-    # Make curve renderable in Arnold with increased visibility
+    cmds.setAttr(f'{orbit_shape}.overrideColorRGB', 1, 1, 1, type='double3')
+    cmds.setAttr(f'{orbit_shape}.lineWidth', 3)
     cmds.setAttr(f'{orbit_shape}.aiRenderCurve', 1)
-    cmds.setAttr(f'{orbit_shape}.aiCurveWidth', 0.05)  # Increased from 0.02 to 0.05
-    cmds.setAttr(f'{orbit_shape}.aiSampleRate', 3)  # Increased sample rate
+    cmds.setAttr(f'{orbit_shape}.aiCurveWidth', 0.05)
+    cmds.setAttr(f'{orbit_shape}.aiSampleRate', 3)
     
-    # Create shader for orbit curve with higher emission
     orbit_shader = cmds.shadingNode('aiStandardSurface', asShader=True, name=f'{name}_orbit_mat')
     cmds.setAttr(f'{orbit_shader}.baseColor', 1, 1, 1, type='double3')
-    cmds.setAttr(f'{orbit_shader}.emission', 1.5)  # Increased from 0.5 to 1.5
+    cmds.setAttr(f'{orbit_shader}.emission', 1.5)
     cmds.setAttr(f'{orbit_shader}.emissionColor', 1, 1, 1, type='double3')
     cmds.select(orbit)
     cmds.hyperShade(assign=orbit_shader)
@@ -165,40 +150,29 @@ for name, real_au, real_radius_km, period_days, eccentricity, inclination, axial
         cmds.select(ring)
         cmds.hyperShade(assign=ring_shader)
 
-# Placeholder for asteroid data (commented out)
-asteroid_data = []
-kuiper_data = []
-
 # Create background stars
 num_stars = 500
-star_distance = 120  # Good distance for visibility
-random.seed(123)  # Different seed for stars
+star_distance = 120
+random.seed(123)
 
 for i in range(num_stars):
-    # Random spherical coordinates for even distribution
-    theta = random.uniform(0, 2 * math.pi)  # Azimuth
-    phi = random.uniform(0, math.pi)  # Polar angle
+    theta = random.uniform(0, 2 * math.pi)
+    phi = random.uniform(0, math.pi)
     
-    # Convert to cartesian coordinates on a sphere
     x = star_distance * math.sin(phi) * math.cos(theta)
     y = star_distance * math.sin(phi) * math.sin(theta)
     z = star_distance * math.cos(phi)
     
-    # Random star size (most small, few large)
     star_size = random.uniform(0.05, 0.15) if random.random() < 0.9 else random.uniform(0.15, 0.3)
     
-    # Create star as small sphere
     star = cmds.polySphere(r=star_size, name=f'star_{i}')[0]
     cmds.move(x, y, z, star)
     cmds.parent(star, solar_system)
     
-    # Create glowing white shader for star (fully emissive, no external lighting)
     star_shader = cmds.shadingNode('aiStandardSurface', asShader=True, name=f'star_mat_{i}')
-    
-    # All stars are pure white with full emission (ignores lighting)
-    cmds.setAttr(f'{star_shader}.base', 0)  # No base color response to lighting
-    cmds.setAttr(f'{star_shader}.emission', random.uniform(1.0, 2.0))  # Higher emission
-    cmds.setAttr(f'{star_shader}.emissionColor', 1, 1, 1, type='double3')  # Pure white
+    cmds.setAttr(f'{star_shader}.base', 0)
+    cmds.setAttr(f'{star_shader}.emission', random.uniform(1.0, 2.0))
+    cmds.setAttr(f'{star_shader}.emissionColor', 1, 1, 1, type='double3')
     
     cmds.select(star)
     cmds.hyperShade(assign=star_shader)
@@ -220,23 +194,19 @@ for name, real_au, real_radius_km, period_days, eccentricity, inclination, axial
         mean_anomaly = start_angle - (angle_fraction * total_rotation)
         M = math.radians(mean_anomaly)
         
-        # Solve Kepler's equation
         E = M
         for iteration in range(5):
             E = E - (E - eccentricity * math.sin(E) - M) / (1 - eccentricity * math.cos(E))
         
-        # Calculate true anomaly
         true_anomaly = 2 * math.atan2(
             math.sqrt(1 + eccentricity) * math.sin(E/2),
             math.sqrt(1 - eccentricity) * math.cos(E/2)
         )
         
-        # Position calculation
         r = semi_major * (1 - eccentricity**2) / (1 + eccentricity * math.cos(true_anomaly))
         x_flat = r * math.cos(true_anomaly)
         z_flat = r * math.sin(true_anomaly)
         
-        # Apply orbital inclination
         inclination_rad = math.radians(inclination)
         x = x_flat
         y = -z_flat * math.sin(inclination_rad)
@@ -253,7 +223,6 @@ for name, real_au, real_radius_km, period_days, eccentricity, inclination, axial
     cmds.selectKey(name, attribute='translateZ', add=True)
     cmds.keyTangent(inTangentType='spline', outTangentType='spline')
     
-    # Planetary rotation
     hours_per_earth_year = 365.25 * 24
     rotations_per_year = hours_per_earth_year / rotation_hours
     total_rotation_degrees = 360 * rotations_per_year
@@ -287,7 +256,6 @@ cmds.setAttr(f'{moon_shader}.color', 0.8, 0.8, 0.75, type='double3')
 cmds.select(moon)
 cmds.hyperShade(assign=moon_shader)
 
-# Create text label for Moon (simplified)
 moon_text_result = cmds.textCurves(font='Arial', text='Moon', name='moon_label')
 if isinstance(moon_text_result, list):
     moon_text_transform = moon_text_result[0]
@@ -305,17 +273,13 @@ cmds.move(0, moon_radius + 0.2, 0, moon_text_transform, relative=True)
 moon_text_shapes = cmds.listRelatives(moon_text_transform, allDescendents=True, type='nurbsCurve')
 if moon_text_shapes:
     for shape in moon_text_shapes:
-        # Make visible in viewport
         cmds.setAttr(f'{shape}.overrideEnabled', 1)
         cmds.setAttr(f'{shape}.overrideRGBColors', 1)
         cmds.setAttr(f'{shape}.overrideColorRGB', 1, 1, 1, type='double3')
-        
-        # Make renderable in Arnold
         cmds.setAttr(f'{shape}.aiRenderCurve', 1)
         cmds.setAttr(f'{shape}.aiCurveWidth', 0.03)
         cmds.setAttr(f'{shape}.aiSampleRate', 2)
     
-    # Create glowing shader
     moon_text_shader = cmds.shadingNode('aiStandardSurface', asShader=True, name='moon_text_mat')
     cmds.setAttr(f'{moon_text_shader}.baseColor', 1, 1, 1, type='double3')
     cmds.setAttr(f'{moon_text_shader}.emission', 1.0)
@@ -324,7 +288,6 @@ if moon_text_shapes:
     cmds.select(moon_text_transform)
     cmds.hyperShade(assign=moon_text_shader)
 
-# Point constrain text to follow moon position (not rotation)
 cmds.pointConstraint(moon, moon_text_transform, maintainOffset=True)
 cmds.parent(moon_text_transform, solar_system)
 
@@ -361,9 +324,48 @@ cmds.selectKey('moon', attribute='translateY', add=True)
 cmds.selectKey('moon', attribute='translateZ', add=True)
 cmds.keyTangent(inTangentType='spline', outTangentType='spline')
 
+# Create camera that orbits Earth
+camera_result = cmds.camera(name='earth_orbit_camera')
+camera_transform = camera_result[0]  # The transform node
+camera_shape = camera_result[1]  # The camera shape node
+cmds.parent(camera_transform, solar_system)
+
+camera_distance = 25.5
+camera_height = 6.5
+num_camera_keyframes = 50
+
+for i in range(num_camera_keyframes + 1):
+    frame = 1 + int((i / num_camera_keyframes) * (frames_per_earth_year - 1))
+    cmds.currentTime(frame)
+    
+    earth_pos = cmds.xform('earth', query=True, worldSpace=True, translation=True)
+    
+    orbit_angle = (i / num_camera_keyframes) * 720
+    angle_rad = math.radians(orbit_angle)
+    
+    cam_x = earth_pos[0] + camera_distance * math.cos(angle_rad)
+    cam_y = earth_pos[1] + camera_height
+    cam_z = earth_pos[2] + camera_distance * math.sin(angle_rad)
+    
+    cmds.setKeyframe(camera_transform, attribute='translateX', time=frame, value=cam_x)
+    cmds.setKeyframe(camera_transform, attribute='translateY', time=frame, value=cam_y)
+    cmds.setKeyframe(camera_transform, attribute='translateZ', time=frame, value=cam_z)
+
+cmds.selectKey(camera_transform, attribute='translateX')
+cmds.selectKey(camera_transform, attribute='translateY', add=True)
+cmds.selectKey(camera_transform, attribute='translateZ', add=True)
+cmds.keyTangent(inTangentType='spline', outTangentType='spline')
+
+cmds.aimConstraint('earth', camera_transform, 
+                   maintainOffset=False,
+                   aimVector=[0, 0, -1],
+                   upVector=[0, 1, 0],
+                   worldUpType='scene')
+
+cmds.lookThru(camera_transform)
+
 # Finalize
 cmds.select(solar_system)
-cmds.viewFit()
 cmds.currentTime(1)
 
 print("\nBirthday Solar System Created!")
@@ -371,7 +373,7 @@ print("June 20, 2004 - Astronomical positions from NASA JPL Horizons")
 print("1000 frames = 1 Earth year")
 print("\nFeatures:")
 print("- Arnold Skydome Light with black space background (intensity 1.5)")
-print("- 500 pure white background stars (distance 80)")
+print("- 500 pure white background stars (distance 120)")
 print("- Glowing sun with emission shader")
 print("- ENHANCED orbit curves - 3x thicker lines, brighter glow (emission 1.5)")
 print("- Planet name labels (Arnold renderable curves)")
@@ -380,5 +382,6 @@ print("- Real axial tilts and rotation periods")
 print("- Counter-clockwise orbital motion")
 print("- Saturn's rings")
 print("- Moon with 5.1° inclination and label")
+print("- Camera orbiting Earth (2 full rotations, always aimed at Earth)")
 print("\nNote: Asteroid belts commented out for performance")
 print("\nIMPORTANT: Make sure Arnold renderer is set as your renderer for orbits and text to appear in renders!")
