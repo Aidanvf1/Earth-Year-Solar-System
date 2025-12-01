@@ -7,6 +7,19 @@ cmds.select(all=True)
 if cmds.ls(selection=True):
     cmds.delete()
 
+# Initialize Arnold renderer if not already set
+if not cmds.objExists('defaultArnoldRenderOptions'):
+    try:
+        cmds.loadPlugin('mtoa', quiet=True)
+    except:
+        print("Warning: Arnold plugin (mtoa) could not be loaded. Some features may not work.")
+
+# Set Arnold as the current renderer
+try:
+    cmds.setAttr('defaultRenderGlobals.currentRenderer', 'arnold', type='string')
+except:
+    print("Warning: Could not set Arnold as renderer. Continuing anyway...")
+
 # Create main group
 solar_system = cmds.group(empty=True, name='solar_system')
 
@@ -52,6 +65,9 @@ def calculate_planet_size(radius_km):
     size_compression = 0.7
     return (radius_km * scale_factor) * (radius_km / earth_radius_km) ** (size_compression - 1)
 
+# Store planet objects for camera constraint later
+planet_objects = {}
+
 # Create planets
 for name, real_au, real_radius_km, period_days, eccentricity, inclination, axial_tilt, rotation_hours, start_angle, color in planets:
     semi_major = calculate_distance(real_au)
@@ -59,13 +75,19 @@ for name, real_au, real_radius_km, period_days, eccentricity, inclination, axial
     
     planet = cmds.polySphere(r=size, name=name)[0]
     cmds.parent(planet, solar_system)
+    planet_objects[name] = planet
     
     # Apply axial tilt
     cmds.rotate(axial_tilt, 0, 0, planet, relative=True)
     
-    # Color planet
-    shader = cmds.shadingNode('lambert', asShader=True, name=f'{name}_mat')
-    cmds.setAttr(f'{shader}.color', color[0], color[1], color[2], type='double3')
+    # Create realistic planet material (non-glowing)
+    shader = cmds.shadingNode('aiStandardSurface', asShader=True, name=f'{name}_mat')
+    cmds.setAttr(f'{shader}.baseColor', color[0], color[1], color[2], type='double3')
+    cmds.setAttr(f'{shader}.specular', 0.3)
+    cmds.setAttr(f'{shader}.specularRoughness', 0.6)
+    cmds.setAttr(f'{shader}.metalness', 0.0)
+    cmds.setAttr(f'{shader}.emission', 0.0)  # Explicitly no emission
+    # No emission - planets don't glow
     cmds.select(planet)
     cmds.hyperShade(assign=shader)
     
@@ -80,10 +102,26 @@ for name, real_au, real_radius_km, period_days, eccentricity, inclination, axial
     if text_parent:
         text_transform = text_parent[0]
     
-    text_scale = max(0.5, size * 2.0)
+    # Scale text appropriately
+    text_scale = max(0.3, size * 1.5)
     cmds.scale(text_scale, text_scale, text_scale, text_transform)
-    cmds.move(size - 5, size + 0.5, 0, text_transform, relative=True)
     
+    # Create locator group for text positioning
+    text_locator = cmds.spaceLocator(name=f'{name}_text_locator')[0]
+    cmds.parent(text_locator, solar_system)
+    
+    # Constrain locator to follow planet position
+    cmds.pointConstraint(planet, text_locator, maintainOffset=False)
+    
+    # Parent text to locator and position above
+        # Parent text to locator and position above
+    cmds.parent(text_transform, text_locator)
+    text_offset = size + 0.5
+    cmds.setAttr(f'{text_transform}.translateY', text_offset)
+    cmds.setAttr(f'{text_transform}.translateX', 0)
+    cmds.setAttr(f'{text_transform}.translateZ', 0)
+    
+    # Setup text rendering with Arnold
     text_shapes = cmds.listRelatives(text_transform, allDescendents=True, type='nurbsCurve')
     if text_shapes:
         for shape in text_shapes:
@@ -101,9 +139,6 @@ for name, real_au, real_radius_km, period_days, eccentricity, inclination, axial
         
         cmds.select(text_transform)
         cmds.hyperShade(assign=text_shader)
-    
-    cmds.pointConstraint(planet, text_transform, maintainOffset=True)
-    cmds.parent(text_transform, solar_system)
     
     # Create elliptical orbit curve
     num_points = 100
@@ -144,14 +179,20 @@ for name, real_au, real_radius_km, period_days, eccentricity, inclination, axial
         cmds.pointConstraint(planet, ring_group, maintainOffset=False)
         cmds.parent(ring_group, solar_system)
         
-        ring_shader = cmds.shadingNode('lambert', asShader=True, name='saturn_ring_mat')
-        cmds.setAttr(f'{ring_shader}.color', 0.85, 0.75, 0.6, type='double3')
-        cmds.setAttr(f'{ring_shader}.transparency', 0.2, 0.2, 0.2, type='double3')
+        ring_shader = cmds.shadingNode('aiStandardSurface', asShader=True, name='saturn_ring_mat')
+        cmds.setAttr(f'{ring_shader}.baseColor', 0.85, 0.75, 0.6, type='double3')
+        cmds.setAttr(f'{ring_shader}.specular', 0.2)
+        cmds.setAttr(f'{ring_shader}.specularRoughness', 0.7)
+        cmds.setAttr(f'{ring_shader}.opacity', 0.8, 0.8, 0.8, type='double3')
         cmds.select(ring)
         cmds.hyperShade(assign=ring_shader)
 
-# Create background stars
-num_stars = 500
+# Set animation range
+frames_per_earth_year = 1000
+cmds.playbackOptions(min=1, max=frames_per_earth_year)
+
+# Create background stars (increased from 500 to 1800)
+num_stars = 1800
 star_distance = 120
 random.seed(123)
 
@@ -177,9 +218,115 @@ for i in range(num_stars):
     cmds.select(star)
     cmds.hyperShade(assign=star_shader)
 
-# Set animation range
-frames_per_earth_year = 1000
-cmds.playbackOptions(min=1, max=frames_per_earth_year)
+# Create Asteroid Belt between Mars and Jupiter
+# Real asteroid belt: 2.2 to 3.2 AU (with safe margins from planetary orbits)
+mars_distance = calculate_distance(1.524)
+jupiter_distance = calculate_distance(5.203)
+asteroid_belt_inner_au = 2.2
+asteroid_belt_outer_au = 3.2
+asteroid_belt_inner = calculate_distance(asteroid_belt_inner_au)
+asteroid_belt_outer = calculate_distance(asteroid_belt_outer_au)
+num_asteroids = 300
+random.seed(456)
+
+asteroid_data = []  # Store for animation later
+
+for i in range(num_asteroids):
+    distance_au = random.uniform(asteroid_belt_inner_au, asteroid_belt_outer_au)
+    distance = calculate_distance(distance_au)
+    start_angle = random.uniform(0, 360)
+    inclination_variation = random.uniform(-2, 2)
+    
+    angle_rad = math.radians(start_angle)
+    x = distance * math.cos(angle_rad)
+    z = distance * math.sin(angle_rad)
+    y = random.uniform(-0.2, 0.2)
+    
+    asteroid_size = random.uniform(0.02, 0.08)
+    
+    # Create different asteroid shapes for variety
+    shape_type = random.randint(1, 4)
+    if shape_type == 1:
+        # Sphere
+        asteroid = cmds.polySphere(r=asteroid_size, name=f'asteroid_{i}')[0]
+    elif shape_type == 2:
+        # Cube (rocky block)
+        asteroid = cmds.polyCube(w=asteroid_size*2, h=asteroid_size*1.8, d=asteroid_size*2.2, name=f'asteroid_{i}')[0]
+    elif shape_type == 3:
+        # Cone (pointy asteroid)
+        asteroid = cmds.polyCone(r=asteroid_size, h=asteroid_size*2.5, name=f'asteroid_{i}')[0]
+    else:
+        # Cylinder (tumbling rock)
+        asteroid = cmds.polyCylinder(r=asteroid_size, h=asteroid_size*2, name=f'asteroid_{i}')[0]
+    
+    cmds.move(x, y, z, asteroid)
+    cmds.parent(asteroid, solar_system)
+    
+    # Random rotation for variation
+    cmds.rotate(random.uniform(0, 360), random.uniform(0, 360), random.uniform(0, 360), asteroid)
+    
+    asteroid_shader = cmds.shadingNode('aiStandardSurface', asShader=True, name=f'asteroid_mat_{i}')
+    brown_r = random.uniform(0.35, 0.5)
+    brown_g = random.uniform(0.25, 0.35)
+    brown_b = random.uniform(0.15, 0.25)
+    cmds.setAttr(f'{asteroid_shader}.baseColor', brown_r, brown_g, brown_b, type='double3')
+    cmds.setAttr(f'{asteroid_shader}.specular', 0.05)
+    cmds.setAttr(f'{asteroid_shader}.specularRoughness', 0.95)
+    cmds.setAttr(f'{asteroid_shader}.metalness', 0.0)
+    # No emission - asteroids don't glow
+    cmds.select(asteroid)
+    cmds.hyperShade(assign=asteroid_shader)
+    
+    # Store data for animation
+    asteroid_data.append({
+        'name': f'asteroid_{i}',
+        'distance': distance,
+        'distance_au': distance_au,
+        'start_angle': start_angle,
+        'y_offset': y,
+        'inclination': inclination_variation
+    })
+
+# Animate asteroids using Kepler's 3rd Law
+for asteroid_info in asteroid_data:
+    name = asteroid_info['name']
+    distance_au = asteroid_info['distance_au']
+    distance = asteroid_info['distance']
+    start_angle = asteroid_info['start_angle']
+    y_offset = asteroid_info['y_offset']
+    inclination = asteroid_info['inclination']
+    
+    # Kepler's 3rd law: T² = a³ (where T is in Earth years, a is in AU)
+    period_earth_years = math.sqrt(distance_au ** 3)
+    rotations_per_earth_year = 1.0 / period_earth_years
+    total_rotation = 360 * rotations_per_earth_year
+    
+    # Create keyframes for asteroid orbit
+    num_keyframes = 20
+    for frame_idx in range(num_keyframes + 1):
+        frame = 1 + (frame_idx / num_keyframes) * (frames_per_earth_year - 1)
+        angle_fraction = frame_idx / num_keyframes
+        current_angle = start_angle - (angle_fraction * total_rotation)
+        angle_rad = math.radians(current_angle)
+        
+        x = distance * math.cos(angle_rad)
+        z = distance * math.sin(angle_rad)
+        
+        # Apply slight inclination
+        inclination_rad = math.radians(inclination)
+        y = y_offset - z * math.sin(inclination_rad)
+        z_tilted = z * math.cos(inclination_rad)
+        
+        cmds.currentTime(frame)
+        cmds.move(x, y, z_tilted, name, worldSpace=True)
+        cmds.setKeyframe(name, attribute='translateX')
+        cmds.setKeyframe(name, attribute='translateY')
+        cmds.setKeyframe(name, attribute='translateZ')
+    
+    cmds.selectKey(name, attribute='translateX')
+    cmds.selectKey(name, attribute='translateY', add=True)
+    cmds.selectKey(name, attribute='translateZ', add=True)
+    cmds.keyTangent(inTangentType='linear', outTangentType='linear')
 
 # Animate planets
 for name, real_au, real_radius_km, period_days, eccentricity, inclination, axial_tilt, rotation_hours, start_angle, color in planets:
@@ -251,8 +398,11 @@ moon_inclination = 5.1
 moon = cmds.polySphere(r=moon_radius, name='moon')[0]
 cmds.parent(moon, solar_system)
 
-moon_shader = cmds.shadingNode('lambert', asShader=True, name='moon_mat')
-cmds.setAttr(f'{moon_shader}.color', 0.8, 0.8, 0.75, type='double3')
+moon_shader = cmds.shadingNode('aiStandardSurface', asShader=True, name='moon_mat')
+cmds.setAttr(f'{moon_shader}.baseColor', 0.8, 0.8, 0.75, type='double3')
+cmds.setAttr(f'{moon_shader}.specular', 0.2)
+cmds.setAttr(f'{moon_shader}.specularRoughness', 0.8)
+cmds.setAttr(f'{moon_shader}.emission', 0.0)  # Explicitly no emission
 cmds.select(moon)
 cmds.hyperShade(assign=moon_shader)
 
@@ -266,9 +416,19 @@ moon_text_parent = cmds.listRelatives(moon_text_transform, parent=True)
 if moon_text_parent:
     moon_text_transform = moon_text_parent[0]
 
-moon_text_scale = 0.3
+moon_text_scale = 0.25
 cmds.scale(moon_text_scale, moon_text_scale, moon_text_scale, moon_text_transform)
-cmds.move(0, moon_radius + 0.2, 0, moon_text_transform, relative=True)
+
+# Create locator for moon text
+moon_text_locator = cmds.spaceLocator(name='moon_text_locator')[0]
+cmds.parent(moon_text_locator, solar_system)
+cmds.pointConstraint('moon', moon_text_locator, maintainOffset=False)
+
+# Parent moon text to locator
+cmds.parent(moon_text_transform, moon_text_locator)
+cmds.setAttr(f'{moon_text_transform}.translateY', moon_radius + 0.2)
+cmds.setAttr(f'{moon_text_transform}.translateX', 0)
+cmds.setAttr(f'{moon_text_transform}.translateZ', 0)
 
 moon_text_shapes = cmds.listRelatives(moon_text_transform, allDescendents=True, type='nurbsCurve')
 if moon_text_shapes:
@@ -287,9 +447,6 @@ if moon_text_shapes:
     
     cmds.select(moon_text_transform)
     cmds.hyperShade(assign=moon_text_shader)
-
-cmds.pointConstraint(moon, moon_text_transform, maintainOffset=True)
-cmds.parent(moon_text_transform, solar_system)
 
 # Animate Moon
 orbits_per_year = 365.25 / moon_orbital_period
@@ -324,28 +481,45 @@ cmds.selectKey('moon', attribute='translateY', add=True)
 cmds.selectKey('moon', attribute='translateZ', add=True)
 cmds.keyTangent(inTangentType='spline', outTangentType='spline')
 
-# Create camera that orbits Earth
+# Create camera that follows Earth from behind on its orbit
 camera_result = cmds.camera(name='earth_orbit_camera')
-camera_transform = camera_result[0]  # The transform node
-camera_shape = camera_result[1]  # The camera shape node
+camera_transform = camera_result[0]
+camera_shape = camera_result[1]
 cmds.parent(camera_transform, solar_system)
 
-camera_distance = 25.5
-camera_height = 6.5
+camera_distance_behind = 25.0
+camera_height_offset = 5.0
 num_camera_keyframes = 50
 
+# Calculate camera positions following Earth's orbit from behind
 for i in range(num_camera_keyframes + 1):
     frame = 1 + int((i / num_camera_keyframes) * (frames_per_earth_year - 1))
     cmds.currentTime(frame)
     
     earth_pos = cmds.xform('earth', query=True, worldSpace=True, translation=True)
     
-    orbit_angle = (i / num_camera_keyframes) * 720
-    angle_rad = math.radians(orbit_angle)
+    # Calculate velocity direction (tangent to orbit)
+    # Get next position to determine direction
+    next_i = (i + 1) % (num_camera_keyframes + 1)
+    next_frame = 1 + int((next_i / num_camera_keyframes) * (frames_per_earth_year - 1))
+    cmds.currentTime(next_frame)
+    earth_next_pos = cmds.xform('earth', query=True, worldSpace=True, translation=True)
+    cmds.currentTime(frame)
     
-    cam_x = earth_pos[0] + camera_distance * math.cos(angle_rad)
-    cam_y = earth_pos[1] + camera_height
-    cam_z = earth_pos[2] + camera_distance * math.sin(angle_rad)
+    # Direction vector (where Earth is going)
+    dx = earth_next_pos[0] - earth_pos[0]
+    dz = earth_next_pos[2] - earth_pos[2]
+    
+    # Normalize
+    length = math.sqrt(dx*dx + dz*dz)
+    if length > 0:
+        dx /= length
+        dz /= length
+    
+    # Position camera behind Earth (opposite to velocity direction)
+    cam_x = earth_pos[0] - dx * camera_distance_behind
+    cam_y = earth_pos[1] + camera_height_offset
+    cam_z = earth_pos[2] - dz * camera_distance_behind
     
     cmds.setKeyframe(camera_transform, attribute='translateX', time=frame, value=cam_x)
     cmds.setKeyframe(camera_transform, attribute='translateY', time=frame, value=cam_y)
@@ -356,11 +530,38 @@ cmds.selectKey(camera_transform, attribute='translateY', add=True)
 cmds.selectKey(camera_transform, attribute='translateZ', add=True)
 cmds.keyTangent(inTangentType='spline', outTangentType='spline')
 
+# Aim camera at Earth
 cmds.aimConstraint('earth', camera_transform, 
                    maintainOffset=False,
                    aimVector=[0, 0, -1],
                    upVector=[0, 1, 0],
                    worldUpType='scene')
+
+# Now create aim constraints for all text labels to face the camera
+for name, _, _, _, _, _, _, _, _, _ in planets:
+    text_locator = f'{name}_text_locator'
+    if cmds.objExists(text_locator):
+        # Get the text transform (child of locator)
+        text_children = cmds.listRelatives(text_locator, children=True, type='transform')
+        if text_children:
+            for text_child in text_children:
+                # Aim the text at camera
+                cmds.aimConstraint(camera_transform, text_child,
+                                  maintainOffset=False,
+                                  aimVector=[0, 0, 1],
+                                  upVector=[0, 1, 0],
+                                  worldUpType='scene')
+
+# Moon text also faces camera
+if cmds.objExists('moon_text_locator'):
+    moon_text_children = cmds.listRelatives('moon_text_locator', children=True, type='transform')
+    if moon_text_children:
+        for text_child in moon_text_children:
+            cmds.aimConstraint(camera_transform, text_child,
+                              maintainOffset=False,
+                              aimVector=[0, 0, 1],
+                              upVector=[0, 1, 0],
+                              worldUpType='scene')
 
 cmds.lookThru(camera_transform)
 
@@ -368,20 +569,22 @@ cmds.lookThru(camera_transform)
 cmds.select(solar_system)
 cmds.currentTime(1)
 
-print("\nBirthday Solar System Created!")
+print("\nEnhanced Birthday Solar System Created!")
 print("June 20, 2004 - Astronomical positions from NASA JPL Horizons")
 print("1000 frames = 1 Earth year")
 print("\nFeatures:")
 print("- Arnold Skydome Light with black space background (intensity 1.5)")
-print("- 500 pure white background stars (distance 120)")
+print("- 1800 pure white background stars (distance 120)")
 print("- Glowing sun with emission shader")
 print("- ENHANCED orbit curves - 3x thicker lines, brighter glow (emission 1.5)")
-print("- Planet name labels (Arnold renderable curves)")
+print("- Planet name labels (Arnold renderable curves) - ALWAYS FACE CAMERA")
+print("- Labels positioned DIRECTLY ABOVE planets")
+print("- Realistic planet materials with aiStandardSurface (non-glowing)")
 print("- Elliptical orbits with Kepler's laws")
 print("- Real axial tilts and rotation periods")
 print("- Counter-clockwise orbital motion")
-print("- Saturn's rings")
+print("- Saturn's rings with realistic material")
 print("- Moon with 5.1° inclination and label")
-print("- Camera orbiting Earth (2 full rotations, always aimed at Earth)")
-print("\nNote: Asteroid belts commented out for performance")
+print("- 300 asteroids in asteroid belt (2.2-3.2 AU) orbiting with Kepler's laws")
+print("- Camera FOLLOWS Earth from behind along its orbit (not spinning around)")
 print("\nIMPORTANT: Make sure Arnold renderer is set as your renderer for orbits and text to appear in renders!")
